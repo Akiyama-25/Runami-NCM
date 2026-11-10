@@ -1,0 +1,47 @@
+name: runami_ncm
+description: "Cross-platform NCM to MP3/FLAC Converter with M3E & FlClash style."
+publish_to: 'none'
+version: 1.0.0+10
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management & reactive flow (FlClash style)
+  flutter_riverpod: ^2.6.1
+  shared_preferences: ^2.3.3
+
+  # Material 3 Expressive & dynamic theming
+  dynamic_color: ^1.7.0
+  animations: ^2.0.11
+  intl: ^0.19.0
+
+  # Pure Dart crypto & HTTP
+  pointycastle: ^3.9.1
+  dio: ^5.7.0
+
+  # Multi-platform file system & utilities
+  file_picker: ^8.1.4
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  url_launcher: ^6.3.1
+
+  # Desktop integration (Windows)
+  desktop_drop: ^0.5.0
+  window_manager: ^0.4.3
+  tray_manager: ^0.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/app_instructions.txt

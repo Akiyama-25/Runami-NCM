@@ -1,0 +1,125 @@
+name: Windows CI & Persistent Signing
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-sign-windows:
+    name: Build and Sign Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Restore Persistent Windows Code Signing Certificate
+        id: cache-win-cert
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: runami-ncm-windows-signing-cert-v1
+
+      - name: Generate Persistent Certificate if not cached
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .signing_cache | Out-Null
+          New-Item -ItemType Directory -Force -Path cert_backup | Out-Null
+
+          $pfxPath = ".signing_cache\RunamiNCM_CodeSign.pfx"
+          $passPath = ".signing_cache\cert_pass.txt"
+          $defaultPass = "RunamiNCM_CodeSign_2026"
+
+          if (-not (Test-Path $pfxPath)) {
+            Write-Host ">>> Generating new persistent Code Signing Certificate..."
+            $securePass = ConvertTo-SecureString -String $defaultPass -Force -AsPlainText
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert `
+              -Subject "CN=Runami NCM, OU=CodeSigning, O=Akari, C=JP" `
+              -KeyUsage DigitalSignature `
+              -FriendlyName "Runami NCM Code Signing Certificate" `
+              -CertStoreLocation "Cert:\CurrentUser\My" `
+              -NotAfter (Get-Date).AddYears(10)
+            
+            Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePass | Out-Null
+            Set-Content -Path $passPath -Value $defaultPass
+            Write-Host ">>> Generated and saved to $pfxPath"
+          } else {
+            Write-Host ">>> Restored existing persistent Code Signing Certificate from cache."
+          }
+
+          Copy-Item $pfxPath cert_backup\
+          Copy-Item $passPath cert_backup\
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Sign Windows Executable with Persistent Certificate
+        shell: pwsh
+        run: |
+          $pfxPath = (Resolve-Path ".signing_cache\RunamiNCM_CodeSign.pfx").Path
+          $pass = (Get-Content ".signing_cache\cert_pass.txt").Trim()
+          
+          # Find signtool.exe in Windows SDK
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          if (-not $signtool) {
+            $signtool = "signtool.exe"
+          }
+          Write-Host "Using SignTool at: $signtool"
+
+          $exePath = "build\windows\x64\runner\Release\Runami-NCM.exe"
+          if (-not (Test-Path $exePath)) {
+            $exePath = (Get-ChildItem -Path "build\windows" -Filter "*.exe" -Recurse | Select-Object -First 1).FullName
+          }
+          Write-Host "Signing executable: $exePath"
+
+          & $signtool sign /f "$pfxPath" /p "$pass" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exePath"
+          & $signtool verify /pa "$exePath"
+          Write-Host ">>> Successfully signed and verified: $exePath"
+
+      - name: Package Windows Release Distribution
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $releaseDir = "build\windows\x64\runner\Release"
+          if (-not (Test-Path $releaseDir)) {
+            $releaseDir = (Get-ChildItem -Path "build\windows" -Filter "Release" -Directory -Recurse | Select-Object -First 1).FullName
+          }
+          
+          $zipPath = "dist\Runami-NCM-Windows-x64.zip"
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
+          
+          $hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+          "$hash  Runami-NCM-Windows-x64.zip" | Out-File -FilePath dist\SHA256SUMS.txt -Encoding ascii
+          Write-Host "Packaged release to $zipPath with SHA256: $hash"
+
+      - name: Upload Signed Windows Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-windows-signed-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Persistent Signing Certificate Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-windows-signing-backup
+          path: cert_backup/*
+          retention-days: 90

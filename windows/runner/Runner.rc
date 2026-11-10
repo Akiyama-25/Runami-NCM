@@ -1,0 +1,38 @@
+#include "resource.h"
+#include <windows.h>
+
+#define VERSION_AS_NUMBER 1,0,0,0
+#define VERSION_AS_STRING "1.0.0.0"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION VERSION_AS_NUMBER
+ PRODUCTVERSION VERSION_AS_NUMBER
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904e4"
+        BEGIN
+            VALUE "CompanyName", "Akari"
+            VALUE "FileDescription", "Runami NCM Converter"
+            VALUE "FileVersion", VERSION_AS_STRING
+            VALUE "InternalName", "Runami-NCM"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Akari. All rights reserved."
+            VALUE "OriginalFilename", "Runami-NCM.exe"
+            VALUE "ProductName", "Runami NCM"
+            VALUE "ProductVersion", VERSION_AS_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END

@@ -1,0 +1,131 @@
+name: iOS CI & Persistent Signing
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-sign-ios:
+    name: Build and Sign iOS IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Restore Persistent iOS Signing Certificate
+        id: cache-ios-cert
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: runami-ncm-ios-signing-cert-v1
+
+      - name: Generate Persistent Certificate if not cached
+        run: |
+          set -euo pipefail
+          mkdir -p .signing_cache cert_backup
+
+          P12_PATH=".signing_cache/ios_cert.p12"
+          CERT_PASS="RunamiNCM_iOS_2026"
+
+          if [ ! -f "$P12_PATH" ]; then
+            echo ">>> Generating new persistent iOS Code Signing Certificate..."
+            openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+              -subj "/CN=Runami NCM Code Signing/OU=Apple Development/O=Akari/C=JP" \
+              -keyout .signing_cache/ios_key.pem -out .signing_cache/ios_cert.pem
+            
+            openssl pkcs12 -export -out "$P12_PATH" \
+              -inkey .signing_cache/ios_key.pem -in .signing_cache/ios_cert.pem \
+              -passout pass:"$CERT_PASS"
+            
+            echo "$CERT_PASS" > .signing_cache/cert_pass.txt
+            echo ">>> Generated and saved to $P12_PATH"
+          else
+            echo ">>> Restored existing persistent iOS Certificate from cache."
+          fi
+
+          cp "$P12_PATH" cert_backup/
+          cp .signing_cache/cert_pass.txt cert_backup/
+
+      - name: Setup Temporary macOS Keychain
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          CERT_PASS="$(cat .signing_cache/cert_pass.txt)"
+          security import .signing_cache/ios_cert.p12 -k "$KEYCHAIN_PATH" -P "$CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS Application without default codesign
+        run: flutter build ios --release --no-codesign
+
+      - name: Codesign iOS Bundle with Persistent Identity
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          test -d "$APP_PATH"
+
+          echo "Signing $APP_PATH with Runami NCM Code Signing identity..."
+          /usr/bin/codesign --force --verify --verbose \
+            --sign "Runami NCM Code Signing" \
+            --keychain "$KEYCHAIN_PATH" \
+            "$APP_PATH"
+
+          /usr/bin/codesign -dvvv "$APP_PATH"
+
+      - name: Package Signed IPA Distribution
+        run: |
+          set -euo pipefail
+          mkdir -p dist/Payload
+          cp -r build/ios/iphoneos/Runner.app dist/Payload/
+          
+          (cd dist && zip -qr Runami-NCM-iOS.ipa Payload)
+          rm -rf dist/Payload
+
+          (cd dist && shasum -a 256 Runami-NCM-iOS.ipa | tee SHA256SUMS.txt)
+          ls -lh dist/
+
+      - name: Upload Signed iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-ios-signed-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Persistent Signing Certificate Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-ios-signing-backup
+          path: cert_backup/*
+          retention-days: 90
+
+      - name: Clean up Keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
