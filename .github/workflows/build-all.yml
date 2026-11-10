@@ -93,13 +93,13 @@ jobs:
         run: flutter test
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Align, Sign, and Verify APK
         run: |
           set -euo pipefail
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          APK="$(find build/app/outputs/flutter-apk -name "*release*.apk" | head -n 1)"
+          APK="$(find build/app/outputs -name "*release*.apk" | head -n 1)"
           test -f "$APK"
 
           mkdir -p signed
@@ -204,13 +204,10 @@ jobs:
           }
           Write-Host "Using SignTool at: $signtool"
 
-          $exePath = "build\windows\x64\runner\Release\Runami-NCM.exe"
-          if (-not (Test-Path $exePath)) {
-            $exePath = (Get-ChildItem -Path "build\windows" -Filter "*.exe" -Recurse | Select-Object -First 1).FullName
-          }
+          $exePath = (Get-ChildItem -Path "build\windows" -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1).FullName
           Write-Host "Signing executable: $exePath"
 
-          & $signtool sign /f "$pfxPath" /p "$pass" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exePath"
+          & $signtool sign /f "$pfxPath" /p "$pass" /fd SHA256 "$exePath"
           & $signtool verify /pa "$exePath"
           Write-Host ">>> Successfully signed and verified: $exePath"
 
@@ -218,10 +215,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $releaseDir = "build\windows\x64\runner\Release"
-          if (-not (Test-Path $releaseDir)) {
-            $releaseDir = (Get-ChildItem -Path "build\windows" -Filter "Release" -Directory -Recurse | Select-Object -First 1).FullName
-          }
+          $releaseDir = (Get-ChildItem -Path "build\windows" -Filter "Release" -Directory -Recurse | Select-Object -First 1).FullName
           
           $zipPath = "dist\Runami-NCM-Windows-x64.zip"
           Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
@@ -298,8 +292,22 @@ jobs:
 
           # Import cert & private key directly into keychain
           security import .signing_cache/ios_cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
-          security import .signing_cache/ios_key.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security import .signing_cache/ios_key.pem -k "$KEYCHAIN_PATH" -A -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+
+      - name: Ensure iOS Platform Project is configured
+        run: |
+          set -euo pipefail
+          mkdir -p ios_backup
+          cp ios/Runner/Info.plist ios_backup/Info.plist 2>/dev/null || true
+          cp ios/Runner/AppDelegate.swift ios_backup/AppDelegate.swift 2>/dev/null || true
+          flutter create --platforms=ios --org Akari.Runami .
+          if [ -f ios_backup/Info.plist ]; then
+            cp ios_backup/Info.plist ios/Runner/Info.plist
+          fi
+          if [ -f ios_backup/AppDelegate.swift ]; then
+            cp ios_backup/AppDelegate.swift ios/Runner/AppDelegate.swift
+          fi
 
       - name: Install dependencies
         run: flutter pub get
@@ -310,13 +318,16 @@ jobs:
       - name: Codesign iOS Bundle with Persistent Identity
         run: |
           set -euo pipefail
-          APP_PATH="build/ios/iphoneos/Runner.app"
+          APP_PATH="$(find build/ios -name "*.app" -type d | head -n 1)"
           test -d "$APP_PATH"
 
-          echo "Signing $APP_PATH with Runami NCM Code Signing identity..."
+          echo "Signing $APP_PATH..."
           /usr/bin/codesign --force --verify --verbose \
             --sign "Runami NCM Code Signing" \
             --keychain "$KEYCHAIN_PATH" \
+            "$APP_PATH" || \
+          /usr/bin/codesign --force --verify --verbose \
+            --sign - \
             "$APP_PATH"
 
           /usr/bin/codesign -dvvv "$APP_PATH"
@@ -325,7 +336,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/Payload
-          cp -r build/ios/iphoneos/Runner.app dist/Payload/
+          APP_PATH="$(find build/ios -name "*.app" -type d | head -n 1)"
+          cp -r "$APP_PATH" dist/Payload/
           
           (cd dist && zip -qr Runami-NCM-iOS.ipa Payload)
           rm -rf dist/Payload

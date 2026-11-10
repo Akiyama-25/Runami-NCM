@@ -33,4 +33,6 @@ target_link_libraries(${BINARY_NAME} PRIVATE
   flutter_wrapper_app
 )
 
-target_link_libraries(${BINARY_NAME} PRIVATE ${FLUTTER_LIBRARIES})
+if(FLUTTER_LIBRARIES)
+  target_link_libraries(${BINARY_NAME} PRIVATE ${FLUTTER_LIBRARIES})
+endif()
