@@ -14,9 +14,29 @@ permissions:
   contents: read
 
 jobs:
+  wake-runner:
+    name: Wake InstaBox Runner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake runami machine via InstaBox API
+        continue-on-error: true
+        env:
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+        run: |
+          if [ -n "$INSTABOX_API_KEY" ]; then
+            echo ">>> Sending wake request to InstaBox for runami (m_agqzg6p6up64vdycn4j2n4kpyu)..."
+            curl -s -X POST "https://api.instabox.sh/v1/machines/m_agqzg6p6up64vdycn4j2n4kpyu/wake" \
+              -H "Authorization: Bearer $INSTABOX_API_KEY" || true
+            echo ">>> Waiting 12s for runner daemon to connect..."
+            sleep 12
+          else
+            echo "INSTABOX_API_KEY is not set, skipping wake."
+          fi
+
   build-android:
     name: Build & Sign Android APK
-    runs-on: ubuntu-latest
+    needs: wake-runner
+    runs-on: [self-hosted, android-builder]
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -98,7 +118,15 @@ jobs:
       - name: Align, Sign, and Verify APK
         run: |
           set -euo pipefail
-          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
+            BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+            ZIPALIGN="$BUILD_TOOLS/zipalign"
+            APKSIGNER="$BUILD_TOOLS/apksigner"
+          else
+            ZIPALIGN="$(which zipalign || true)"
+            APKSIGNER="$(which apksigner || true)"
+          fi
+
           APK="$(find build/app/outputs -name "*release*.apk" | head -n 1)"
           test -f "$APK"
 
@@ -106,8 +134,8 @@ jobs:
           ALIGNED="signed/Runami-NCM-aligned.apk"
           FINAL_APK="signed/Runami-NCM-release-signed.apk"
 
-          "$BUILD_TOOLS/zipalign" -f -p 4 "$APK" "$ALIGNED"
-          "$BUILD_TOOLS/apksigner" sign \
+          "$ZIPALIGN" -f -p 4 "$APK" "$ALIGNED"
+          "$APKSIGNER" sign \
             --ks "$KEYSTORE_PATH" \
             --ks-type PKCS12 \
             --ks-pass "env:KEYSTORE_PASS" \
@@ -116,7 +144,7 @@ jobs:
             --out "$FINAL_APK" "$ALIGNED"
           rm -f "$ALIGNED"
 
-          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$FINAL_APK"
+          "$APKSIGNER" verify --verbose --print-certs "$FINAL_APK"
           (cd signed && sha256sum "$(basename "$FINAL_APK")" | tee SHA256SUMS.txt)
 
       - name: Upload Signed Android APK Artifact
@@ -186,16 +214,19 @@ jobs:
           Copy-Item $pfxPath cert_backup\
           Copy-Item $passPath cert_backup\
 
-      - name: Ensure Windows Platform Project is configured
+      - name: Regenerate Windows Platform Project from Flutter Template
         shell: pwsh
         run: |
+          if (Test-Path "windows") {
+            Remove-Item -Recurse -Force "windows"
+          }
           flutter create --platforms=windows --org Akari.Runami .
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build Windows release
-        run: flutter build windows --release
+        run: flutter build windows --release -v
 
       - name: Sign Windows Executable with Persistent Certificate
         shell: pwsh
