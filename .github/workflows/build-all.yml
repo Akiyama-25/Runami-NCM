@@ -191,6 +191,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path cert_backup | Out-Null
 
           $pfxPath = ".signing_cache\RunamiNCM_CodeSign.pfx"
+          $cerPath = ".signing_cache\RunamiNCM_CodeSign.cer"
           $passPath = ".signing_cache\cert_pass.txt"
           $defaultPass = "RunamiNCM_CodeSign_2026"
 
@@ -205,10 +206,15 @@ jobs:
               -NotAfter (Get-Date).AddYears(10)
             
             Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePass | Out-Null
+            Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
             Set-Content -Path $passPath -Value $defaultPass
             Write-Host ">>> Generated and saved to $pfxPath"
           } else {
             Write-Host ">>> Restored existing persistent Code Signing Certificate from cache."
+          }
+
+          if (Test-Path $cerPath) {
+            Import-Certificate -FilePath $cerPath -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
           }
 
           Copy-Item $pfxPath cert_backup\
@@ -244,7 +250,7 @@ jobs:
           Write-Host "Signing executable: $exePath"
 
           & $signtool sign /f "$pfxPath" /p "$pass" /fd SHA256 "$exePath"
-          & $signtool verify /pa "$exePath"
+          & $signtool verify /v "$exePath"
           Write-Host ">>> Successfully signed and verified: $exePath"
 
       - name: Package Windows Release Distribution
