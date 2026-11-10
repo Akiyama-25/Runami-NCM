@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.14)
-project(runner LANGUAGES CXX)
 
 set(BINARY_NAME "Runami-NCM")
 
