@@ -19,7 +19,7 @@ dependencies:
   # Material 3 Expressive & dynamic theming
   dynamic_color: ^1.7.0
   animations: ^2.0.11
-  intl: ^0.19.0
+  intl: any
 
   # Pure Dart crypto & HTTP
   pointycastle: ^3.9.1

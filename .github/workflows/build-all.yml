@@ -1,0 +1,356 @@
+name: Build and Sign Multiplatform (Android, Windows, iOS)
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build & Sign Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Restore Persistent Android Keystore Cache
+        id: cache-keystore
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: runami-ncm-android-keystore-v1
+
+      - name: Setup Persistent Signing Keystore
+        run: |
+          set -euo pipefail
+          mkdir -p .signing_cache keystore_backup
+
+          KEYSTORE_FILE=".signing_cache/release.keystore"
+          CRED_FILE=".signing_cache/credentials.env"
+          DEFAULT_PASS="runami_ncm_release_2026"
+          DEFAULT_ALIAS="runami_ncm"
+
+          if [ ! -f "$KEYSTORE_FILE" ]; then
+            echo ">>> Generating persistent release keystore..."
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_FILE" \
+              -storetype PKCS12 \
+              -alias "$DEFAULT_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$DEFAULT_PASS" \
+              -keypass "$DEFAULT_PASS" \
+              -dname "CN=Runami NCM, OU=Release, O=Akari, C=JP"
+            
+            {
+              echo "KEYSTORE_PASS=$DEFAULT_PASS"
+              echo "ALIAS_NAME=$DEFAULT_ALIAS"
+            } > "$CRED_FILE"
+          else
+            echo ">>> Restored persistent keystore from cache."
+          fi
+
+          source "$CRED_FILE"
+          echo "KEYSTORE_PASS=$KEYSTORE_PASS" >> "$GITHUB_ENV"
+          echo "ALIAS_NAME=$ALIAS_NAME" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PATH=$PWD/$KEYSTORE_FILE" >> "$GITHUB_ENV"
+
+          # Provide keystore to Android build root
+          cp "$KEYSTORE_FILE" android/release.keystore
+          cp "$KEYSTORE_FILE" keystore_backup/release.keystore
+          base64 -w 0 "$KEYSTORE_FILE" > keystore_backup/keystore_base64.txt
+          {
+            echo "Keystore: release.keystore"
+            echo "Alias: $ALIAS_NAME"
+            echo "Password: $KEYSTORE_PASS"
+          } > keystore_backup/keystore_info.txt
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run unit tests
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Align, Sign, and Verify APK
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APK="$(find build/app/outputs/flutter-apk -name "*release*.apk" | head -n 1)"
+          test -f "$APK"
+
+          mkdir -p signed
+          ALIGNED="signed/Runami-NCM-aligned.apk"
+          FINAL_APK="signed/Runami-NCM-release-signed.apk"
+
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$APK" "$ALIGNED"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE_PATH" \
+            --ks-type PKCS12 \
+            --ks-pass "env:KEYSTORE_PASS" \
+            --key-pass "env:KEYSTORE_PASS" \
+            --ks-key-alias "$ALIAS_NAME" \
+            --out "$FINAL_APK" "$ALIGNED"
+          rm -f "$ALIGNED"
+
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$FINAL_APK"
+          (cd signed && sha256sum "$(basename "$FINAL_APK")" | tee SHA256SUMS.txt)
+
+      - name: Upload Signed Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-android-signed-${{ github.run_number }}
+          path: |
+            signed/*.apk
+            signed/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Persistent Android Keystore Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-android-signing-backup
+          path: keystore_backup/*
+          retention-days: 90
+
+  build-windows:
+    name: Build & Sign Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Restore Persistent Windows Code Signing Certificate
+        id: cache-win-cert
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: runami-ncm-windows-signing-cert-v1
+
+      - name: Generate Persistent Certificate if not cached
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .signing_cache | Out-Null
+          New-Item -ItemType Directory -Force -Path cert_backup | Out-Null
+
+          $pfxPath = ".signing_cache\RunamiNCM_CodeSign.pfx"
+          $passPath = ".signing_cache\cert_pass.txt"
+          $defaultPass = "RunamiNCM_CodeSign_2026"
+
+          if (-not (Test-Path $pfxPath)) {
+            Write-Host ">>> Generating new persistent Code Signing Certificate..."
+            $securePass = ConvertTo-SecureString -String $defaultPass -Force -AsPlainText
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert `
+              -Subject "CN=Runami NCM, OU=CodeSigning, O=Akari, C=JP" `
+              -KeyUsage DigitalSignature `
+              -FriendlyName "Runami NCM Code Signing Certificate" `
+              -CertStoreLocation "Cert:\CurrentUser\My" `
+              -NotAfter (Get-Date).AddYears(10)
+            
+            Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePass | Out-Null
+            Set-Content -Path $passPath -Value $defaultPass
+            Write-Host ">>> Generated and saved to $pfxPath"
+          } else {
+            Write-Host ">>> Restored existing persistent Code Signing Certificate from cache."
+          }
+
+          Copy-Item $pfxPath cert_backup\
+          Copy-Item $passPath cert_backup\
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Sign Windows Executable with Persistent Certificate
+        shell: pwsh
+        run: |
+          $pfxPath = (Resolve-Path ".signing_cache\RunamiNCM_CodeSign.pfx").Path
+          $pass = (Get-Content ".signing_cache\cert_pass.txt").Trim()
+          
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          if (-not $signtool) {
+            $signtool = "signtool.exe"
+          }
+          Write-Host "Using SignTool at: $signtool"
+
+          $exePath = "build\windows\x64\runner\Release\Runami-NCM.exe"
+          if (-not (Test-Path $exePath)) {
+            $exePath = (Get-ChildItem -Path "build\windows" -Filter "*.exe" -Recurse | Select-Object -First 1).FullName
+          }
+          Write-Host "Signing executable: $exePath"
+
+          & $signtool sign /f "$pfxPath" /p "$pass" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exePath"
+          & $signtool verify /pa "$exePath"
+          Write-Host ">>> Successfully signed and verified: $exePath"
+
+      - name: Package Windows Release Distribution
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $releaseDir = "build\windows\x64\runner\Release"
+          if (-not (Test-Path $releaseDir)) {
+            $releaseDir = (Get-ChildItem -Path "build\windows" -Filter "Release" -Directory -Recurse | Select-Object -First 1).FullName
+          }
+          
+          $zipPath = "dist\Runami-NCM-Windows-x64.zip"
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
+          
+          $hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+          "$hash  Runami-NCM-Windows-x64.zip" | Out-File -FilePath dist\SHA256SUMS.txt -Encoding ascii
+          Write-Host "Packaged release to $zipPath with SHA256: $hash"
+
+      - name: Upload Signed Windows Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-windows-signed-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Persistent Signing Certificate Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-windows-signing-backup
+          path: cert_backup/*
+          retention-days: 90
+
+  build-ios:
+    name: Build & Sign iOS IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Restore Persistent iOS Signing Certificate
+        id: cache-ios-cert
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: runami-ncm-ios-signing-cert-v1
+
+      - name: Generate Persistent Certificate if not cached
+        run: |
+          set -euo pipefail
+          mkdir -p .signing_cache cert_backup
+
+          KEY_PATH=".signing_cache/ios_key.pem"
+          CERT_PATH=".signing_cache/ios_cert.pem"
+
+          if [ ! -f "$KEY_PATH" ] || [ ! -f "$CERT_PATH" ]; then
+            echo ">>> Generating new persistent iOS Code Signing Certificate..."
+            openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+              -subj "/CN=Runami NCM Code Signing/OU=Apple Development/O=Akari/C=JP" \
+              -keyout "$KEY_PATH" -out "$CERT_PATH"
+          else
+            echo ">>> Restored existing persistent iOS Certificate from cache."
+          fi
+
+          cp "$KEY_PATH" cert_backup/
+          cp "$CERT_PATH" cert_backup/
+
+      - name: Setup Temporary macOS Keychain
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          # Import cert & private key directly into keychain
+          security import .signing_cache/ios_cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security import .signing_cache/ios_key.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS Application without default codesign
+        run: flutter build ios --release --no-codesign
+
+      - name: Codesign iOS Bundle with Persistent Identity
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          test -d "$APP_PATH"
+
+          echo "Signing $APP_PATH with Runami NCM Code Signing identity..."
+          /usr/bin/codesign --force --verify --verbose \
+            --sign "Runami NCM Code Signing" \
+            --keychain "$KEYCHAIN_PATH" \
+            "$APP_PATH"
+
+          /usr/bin/codesign -dvvv "$APP_PATH"
+
+      - name: Package Signed IPA Distribution
+        run: |
+          set -euo pipefail
+          mkdir -p dist/Payload
+          cp -r build/ios/iphoneos/Runner.app dist/Payload/
+          
+          (cd dist && zip -qr Runami-NCM-iOS.ipa Payload)
+          rm -rf dist/Payload
+
+          (cd dist && shasum -a 256 Runami-NCM-iOS.ipa | tee SHA256SUMS.txt)
+          ls -lh dist/
+
+      - name: Upload Signed iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-ios-signed-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Persistent Signing Certificate Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: runami-ncm-ios-signing-backup
+          path: cert_backup/*
+          retention-days: 90
+
+      - name: Clean up Keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi

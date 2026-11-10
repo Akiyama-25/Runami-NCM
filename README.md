@@ -39,22 +39,22 @@
 
 ---
 
-## 📱 平台包名与签名一致性
+## 📱 统一包名标识
 
-- **Android 命名空间**：`com.example.ncmconverter`
-- **Android 应用 ID (applicationId)**：`Akari.Said.YuriBest`
-- **iOS 束标识符 (Bundle Identifier)**：`Akari.Said.YuriBest`
+- **Android 命名空间 (namespace)**：`Akari.Runami.NCM`
+- **Android 应用 ID (applicationId)**：`Akari.Runami.NCM`
+- **iOS 束标识符 (Bundle Identifier)**：`Akari.Runami.NCM`
 - **配置持久化变量**：严格继承原项目 `AppPrefs` 的所有键名（`theme_mode`, `custom_path`, `auto_save`, `enable_lyric`, `enable_cover`, `use_monet_colors`, `system_font_id`, `font_weight` 等）。
 
 ---
 
-## 🛠️ GitHub Actions 持续集成与签名方案
+## 🛠️ GitHub Actions 持续集成与三端持久签名
 
-本项目在 GitHub Actions 中配置了完善的三端自动化构建与签名流水线：
+本项目在 GitHub Actions 中配置了整合的自动化构建与签名流水线（`.github/workflows/build-all.yml`）：
 
 | 平台 | 构建环境 | 签名方案 | 持久化方式 |
 | :--- | :--- | :--- | :--- |
-| **Android** | `[self-hosted, android-builder]` (InstaBox) | 沿用原项目私钥签名工作流（`apksigner` + `zipalign`） | GitHub Secrets (`SIGNING_KEYSTORE_BASE64`, `STORE_PASSWORD`, `KEY_ALIAS`) |
+| **Android** | `ubuntu-latest` | Action 自动生成并配置 PKCS12 密钥库，并使用 `zipalign` 与 `apksigner` 签名 | `actions/cache@v4` 持久化存储 keystore，并输出备份制品 |
 | **Windows** | `windows-latest` | Action 自动生成代码签名证书，并使用 `signtool.exe` 进行数字签名 | `actions/cache@v4` 持久化存储证书，并输出备份制品 |
 | **iOS** | `macos-latest` | Action 自动生成代码签名证书与密钥链，为 `.app` 执行 codesign 并打包为 `.ipa` | `actions/cache@v4` 持久化存储证书，并输出备份制品 |
 
@@ -66,12 +66,11 @@
 
 ```
 Runami NCM/
-├── .github/workflows/          # GitHub Actions 自动化构建与三端签名工作流
-│   ├── android-ci.yml          # Android 签名构建工作流（保持原项目变量与机制）
-│   ├── windows-ci.yml          # Windows 自动化构建、证书自签名与持久化缓存
-│   └── ios-ci.yml              # iOS 自动化构建、证书自签名、codesign 与 IPA 打包
+├── .github/workflows/          # GitHub Actions 统一构建与签名工作流
+│   ├── build-all.yml           # Android / Windows / iOS 三端统一构建与签名流水线
+│   └── codeql.yml              # 代码安全自动化扫描
 ├── android/                    # Android 原生平台配置与 Gradle 脚本
-│   └── app/build.gradle.kts    # 包名: Akari.Said.YuriBest / com.example.ncmconverter
+│   └── app/build.gradle.kts    # 包名: Akari.Runami.NCM
 ├── ios/                        # iOS 原生工程与 Info.plist 文件关联配置
 ├── windows/                    # Windows 桌面 Runner 与 C++ 宿主工程
 ├── assets/                     # 仅包含说明文档，零内嵌字体包

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.ncmconverter"
+    namespace = "Akari.Runami.NCM"
     compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
@@ -19,11 +19,23 @@ android {
     }
 
     defaultConfig {
-        applicationId = "Akari.Said.YuriBest"
+        applicationId = "Akari.Runami.NCM"
         minSdk = 26
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystoreFile = rootProject.file("release.keystore")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASS") ?: "runami_ncm_release_2026"
+                keyAlias = System.getenv("ALIAS_NAME") ?: "runami_ncm"
+                keyPassword = System.getenv("ALIAS_PASS") ?: "runami_ncm_release_2026"
+            }
+        }
     }
 
     buildTypes {
@@ -34,7 +46,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            val keystoreFile = rootProject.file("release.keystore")
+            if (keystoreFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 }
