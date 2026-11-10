@@ -186,6 +186,11 @@ jobs:
           Copy-Item $pfxPath cert_backup\
           Copy-Item $passPath cert_backup\
 
+      - name: Ensure Windows Platform Project is configured
+        shell: pwsh
+        run: |
+          flutter create --platforms=windows --org Akari.Runami .
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -301,7 +306,9 @@ jobs:
           mkdir -p ios_backup
           cp ios/Runner/Info.plist ios_backup/Info.plist 2>/dev/null || true
           cp ios/Runner/AppDelegate.swift ios_backup/AppDelegate.swift 2>/dev/null || true
+          rm -rf ios/Podfile ios/Podfile.lock ios/Pods
           flutter create --platforms=ios --org Akari.Runami .
+          rm -rf ios/Podfile ios/Podfile.lock ios/Pods
           if [ -f ios_backup/Info.plist ]; then
             cp ios_backup/Info.plist ios/Runner/Info.plist
           fi
@@ -321,12 +328,18 @@ jobs:
           APP_PATH="$(find build/ios -name "*.app" -type d | head -n 1)"
           test -d "$APP_PATH"
 
+          echo "Signing frameworks in $APP_PATH..."
+          if [ -d "$APP_PATH/Frameworks" ]; then
+            find "$APP_PATH/Frameworks" -type d -name "*.framework" -exec /usr/bin/codesign --force --sign - --timestamp=none {} + 2>/dev/null || true
+            find "$APP_PATH/Frameworks" -type f -name "*.dylib" -exec /usr/bin/codesign --force --sign - --timestamp=none {} + 2>/dev/null || true
+          fi
+
           echo "Signing $APP_PATH..."
-          /usr/bin/codesign --force --verify --verbose \
+          /usr/bin/codesign --force --deep --verify --verbose \
             --sign "Runami NCM Code Signing" \
             --keychain "$KEYCHAIN_PATH" \
-            "$APP_PATH" || \
-          /usr/bin/codesign --force --verify --verbose \
+            "$APP_PATH" 2>/dev/null || \
+          /usr/bin/codesign --force --deep --verify --verbose \
             --sign - \
             "$APP_PATH"
 

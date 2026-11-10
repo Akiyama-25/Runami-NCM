@@ -23,6 +23,6 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 # Flutter wrapper
-add_subdirectory(flutter)
+include(flutter/CMakeLists.txt)
 
 add_subdirectory(runner)
