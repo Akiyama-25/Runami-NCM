@@ -257,11 +257,28 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $releaseDir = (Get-ChildItem -Path "build\windows" -Filter "Release" -Directory -Recurse | Select-Object -First 1).FullName
-          
-          $zipPath = "dist\Runami-NCM-Windows-x64.zip"
-          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
-          
+          $exe = Get-ChildItem -Path "build\windows" -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "Release executable not found under build\windows!"
+            exit 1
+          }
+          $releaseDir = $exe.DirectoryName
+          Write-Host "Packaging release from: $releaseDir"
+
+          $zipPath = "$PWD\dist\Runami-NCM-Windows-x64.zip"
+          if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+
+          if (Get-Command 7z -ErrorAction SilentlyContinue) {
+            7z a "$zipPath" "$releaseDir\*"
+          } else {
+            Compress-Archive -Path "$releaseDir\*" -DestinationPath "$zipPath" -Force
+          }
+
+          if (-not (Test-Path $zipPath)) {
+            Write-Error "Failed to produce zip file at $zipPath"
+            exit 1
+          }
+
           $hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
           "$hash  Runami-NCM-Windows-x64.zip" | Out-File -FilePath dist\SHA256SUMS.txt -Encoding ascii
           Write-Host "Packaged release to $zipPath with SHA256: $hash"
