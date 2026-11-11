@@ -214,7 +214,7 @@ jobs:
           }
 
           if (Test-Path $cerPath) {
-            Import-Certificate -FilePath $cerPath -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
+            certutil -addstore -f "Root" $cerPath | Out-Null
           }
 
           Copy-Item $pfxPath cert_backup\
@@ -250,7 +250,7 @@ jobs:
           Write-Host "Signing executable: $exePath"
 
           & $signtool sign /f "$pfxPath" /p "$pass" /fd SHA256 "$exePath"
-          & $signtool verify /v "$exePath"
+          & $signtool verify /pa /v "$exePath"
           Write-Host ">>> Successfully signed and verified: $exePath"
 
       - name: Package Windows Release Distribution
