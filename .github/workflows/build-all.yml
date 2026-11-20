@@ -433,3 +433,35 @@ jobs:
           if [ -n "${KEYCHAIN_PATH:-}" ]; then
             security delete-keychain "$KEYCHAIN_PATH" || true
           fi
+
+  cleanup-cache:
+    name: Clean up InstaBox build cache
+    needs: [build-android]
+    if: always()
+    runs-on: [self-hosted, android-builder]
+    steps:
+      - name: Clean build caches and temporary workspace outputs
+        continue-on-error: true
+        run: |
+          echo ">>> Disk usage before cleanup:"
+          df -h . "$HOME" || true
+          rm -rf \
+            "$GITHUB_WORKSPACE/build" \
+            "$GITHUB_WORKSPACE/.dart_tool" \
+            "$GITHUB_WORKSPACE/android/.gradle" \
+            "$GITHUB_WORKSPACE/android/build" \
+            "$GITHUB_WORKSPACE/android"/*/build \
+            "$GITHUB_WORKSPACE/build-outputs" \
+            "$GITHUB_WORKSPACE/keystore_backup" \
+            "$HOME/.gradle/caches/build-cache-"* \
+            "$HOME/.gradle/caches/transforms-"* \
+            "$HOME/.gradle/caches/journal-"* \
+            "$HOME/.gradle/caches/8."* \
+            "$HOME/.gradle/caches/9."* \
+            "$HOME/.gradle/daemon" \
+            "$HOME/.gradle/tmp" \
+            "$HOME/.android/build-cache" \
+            "$RUNNER_TEMP/"* \
+            /tmp/gradle* /tmp/kotlin* /tmp/sdk.log 2>/dev/null || true
+          echo ">>> Disk usage after cleanup:"
+          df -h . "$HOME" || true
