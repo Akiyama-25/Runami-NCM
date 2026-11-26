@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../utils/app_prefs.dart';
-import 'hsl_color.dart';
+import 'package:flutter/services.dart';
+import 'app_colors.dart';
 
 class ThemeEngine {
   static FontWeight resolveWeight(int baseWeight, int offset) {
@@ -9,64 +9,96 @@ class ThemeEngine {
     return FontWeight.values[index.clamp(0, FontWeight.values.length - 1)];
   }
 
-  static TextTheme _buildTextTheme(String? fontFamily, int baseWeight) {
-    final base = Typography.material2021().black.apply(fontFamily: fontFamily);
+  static TextTheme _buildTextTheme(
+    Brightness brightness,
+    String? fontFamily,
+    int baseWeight,
+    ColorScheme scheme,
+  ) {
+    final base = (brightness == Brightness.dark
+            ? Typography.material2021().white
+            : Typography.material2021().black)
+        .apply(
+      fontFamily: fontFamily,
+      bodyColor: scheme.onSurface,
+      displayColor: scheme.onSurface,
+    );
+
+    final bodyW = resolveWeight(baseWeight, 0);
+    final mediumW = resolveWeight(baseWeight, 100);
+    final strongW = resolveWeight(baseWeight, 200);
+
     return base.copyWith(
-      displayLarge: base.displayLarge?.copyWith(fontWeight: resolveWeight(baseWeight, 300)),
-      displayMedium: base.displayMedium?.copyWith(fontWeight: resolveWeight(baseWeight, 300)),
-      displaySmall: base.displaySmall?.copyWith(fontWeight: resolveWeight(baseWeight, 200)),
-      headlineLarge: base.headlineLarge?.copyWith(fontWeight: resolveWeight(baseWeight, 200)),
-      headlineMedium: base.headlineMedium?.copyWith(fontWeight: resolveWeight(baseWeight, 200)),
-      headlineSmall: base.headlineSmall?.copyWith(fontWeight: resolveWeight(baseWeight, 100)),
-      titleLarge: base.titleLarge?.copyWith(fontWeight: resolveWeight(baseWeight, 200)),
-      titleMedium: base.titleMedium?.copyWith(fontWeight: resolveWeight(baseWeight, 100)),
-      titleSmall: base.titleSmall?.copyWith(fontWeight: resolveWeight(baseWeight, 100)),
-      bodyLarge: base.bodyLarge?.copyWith(fontWeight: resolveWeight(baseWeight, 0)),
-      bodyMedium: base.bodyMedium?.copyWith(fontWeight: resolveWeight(baseWeight, 0)),
-      bodySmall: base.bodySmall?.copyWith(fontWeight: resolveWeight(baseWeight, 0)),
-      labelLarge: base.labelLarge?.copyWith(fontWeight: resolveWeight(baseWeight, 100)),
-      labelMedium: base.labelMedium?.copyWith(fontWeight: resolveWeight(baseWeight, 100)),
-      labelSmall: base.labelSmall?.copyWith(fontWeight: resolveWeight(baseWeight, 0)),
+      displayLarge: base.displayLarge?.copyWith(fontWeight: strongW, letterSpacing: -0.5),
+      displayMedium: base.displayMedium?.copyWith(fontWeight: strongW, letterSpacing: -0.25),
+      displaySmall: base.displaySmall?.copyWith(fontWeight: strongW),
+      headlineLarge: base.headlineLarge?.copyWith(fontWeight: strongW, letterSpacing: -0.25),
+      headlineMedium: base.headlineMedium?.copyWith(fontWeight: strongW),
+      headlineSmall: base.headlineSmall?.copyWith(fontWeight: mediumW),
+      titleLarge: base.titleLarge?.copyWith(fontWeight: strongW),
+      titleMedium: base.titleMedium?.copyWith(fontWeight: mediumW, letterSpacing: 0.1),
+      titleSmall: base.titleSmall?.copyWith(fontWeight: mediumW),
+      bodyLarge: base.bodyLarge?.copyWith(fontWeight: bodyW),
+      bodyMedium: base.bodyMedium?.copyWith(fontWeight: bodyW),
+      bodySmall: base.bodySmall?.copyWith(fontWeight: bodyW),
+      labelLarge: base.labelLarge?.copyWith(fontWeight: mediumW),
+      labelMedium: base.labelMedium?.copyWith(fontWeight: mediumW),
+      labelSmall: base.labelSmall?.copyWith(fontWeight: bodyW),
     );
   }
 
   static ThemeData buildTheme({
     required Brightness brightness,
+    required bool useMonetColors,
+    required Color accentColor,
+    required Color bgColor,
     ColorScheme? dynamicColorScheme,
     required String? fontFamily,
     required int baseWeight,
   }) {
     final isDark = brightness == Brightness.dark;
+    final monetActive = useMonetColors && dynamicColorScheme != null;
 
-    // 1. Resolve ColorScheme
-    ColorScheme scheme;
-    if (AppPrefs.useMonetColors && dynamicColorScheme != null) {
-      scheme = dynamicColorScheme;
-    } else {
-      final accent = HslColorUtil.hslToColor(
-        AppPrefs.customAccentH,
-        AppPrefs.customAccentS,
-        AppPrefs.customAccentL,
-      );
-      scheme = ColorScheme.fromSeed(
-        seedColor: accent,
-        brightness: brightness,
-      );
-    }
+    // Step 1: Resolve base scheme (Material You dynamic or M3E default)
+    final baseScheme = monetActive
+        ? dynamicColorScheme
+        : (isDark ? defaultDarkColorScheme : defaultLightColorScheme);
 
-    final textTheme = _buildTextTheme(fontFamily, baseWeight);
+    // Step 2: Apply user custom accent, bg & M3E surface container hierarchy
+    final scheme = applyUserColors(
+      baseScheme,
+      darkTheme: isDark,
+      accent: accentColor,
+      bg: bgColor,
+      monetEnabled: monetActive,
+    );
+
+    // Step 3: Build M3E expressive typography
+    final textTheme = _buildTextTheme(brightness, fontFamily, baseWeight, scheme);
 
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
       fontFamily: fontFamily,
-      scaffoldBackgroundColor: isDark ? scheme.surfaceContainerLowest : scheme.surface,
+      scaffoldBackgroundColor: scheme.surface,
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        elevation: 0,
+        centerTitle: false,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        ),
+      ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? scheme.surfaceContainerLow : scheme.surfaceContainerLowest,
+        color: scheme.surfaceContainerLow,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: EdgeInsets.zero,
       ),
       dialogTheme: DialogThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
@@ -81,35 +113,21 @@ class ThemeEngine {
         ),
         showDragHandle: true,
       ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        ),
-      ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         ),
       ),
-      navigationBarTheme: NavigationBarThemeData(
-        elevation: 0,
-        backgroundColor: isDark ? scheme.surfaceContainerLowest : scheme.surfaceContainerLow,
-        indicatorColor: scheme.secondaryContainer,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      ),
-      navigationRailTheme: NavigationRailThemeData(
-        elevation: 0,
-        backgroundColor: isDark ? scheme.surfaceContainerLowest : scheme.surfaceContainerLow,
-        indicatorColor: scheme.secondaryContainer,
+      dividerTheme: DividerThemeData(
+        color: scheme.outlineVariant,
+        thickness: 1,
       ),
       textTheme: textTheme,
     );

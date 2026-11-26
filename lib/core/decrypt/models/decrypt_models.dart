@@ -96,6 +96,7 @@ class DecryptResult {
   final String mimeType;
   final String extension;
   final String? lyric;
+  final Uint8List? coverBytes;
 
   const DecryptResult({
     this.audioData,
@@ -104,6 +105,7 @@ class DecryptResult {
     required this.mimeType,
     required this.extension,
     this.lyric,
+    this.coverBytes,
   });
 
   bool get isFileBased => tempAudioFile != null && audioData == null;

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/system_font_scanner.dart';
+import '../../core/theme/theme_engine.dart';
 import '../../l10n/app_strings.dart';
 import '../../state/providers.dart';
 
+/// FlClash-Style System Installed Font Picker ModalBottomSheet,
+/// ported 1:1 from NCM-Converter-For-Android SettingsScreen.kt.
 class FontPickerSheet extends ConsumerStatefulWidget {
   const FontPickerSheet({super.key});
 
@@ -13,7 +16,7 @@ class FontPickerSheet extends ConsumerStatefulWidget {
 
 class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
   final TextEditingController _searchController = TextEditingController();
-  String _filter = '';
+  String _searchQuery = '';
 
   @override
   void dispose() {
@@ -26,165 +29,207 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
     final fontsAsync = ref.watch(installedFontsProvider);
     final themeState = ref.watch(themeStateProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final weight = ThemeEngine.resolveWeight(themeState.fontWeight, 0);
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerLow,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.font_download_outlined, color: colorScheme.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
+    final systemFonts = fontsAsync.valueOrNull ?? SystemFontScanner.getLogicalPresets();
+    final filteredFonts = _searchQuery.trim().isEmpty
+        ? systemFonts
+        : systemFonts.where((f) {
+            final q = _searchQuery.trim().toLowerCase();
+            return f.displayName.toLowerCase().contains(q) ||
+                f.subtitle.toLowerCase().contains(q);
+          }).toList();
+
+    final maxSheetHeight = MediaQuery.of(context).size.height * 0.82;
+
+    return SizedBox(
+      height: maxSheetHeight,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          children: [
+            // Header Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
                         AppStrings.get(context, 'font_picker_title'),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style: textTheme.titleMedium?.copyWith(fontSize: 17),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              // Search field
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: AppStrings.get(context, 'font_search_hint'),
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: colorScheme.surfaceContainerHighest,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    suffixIcon: _filter.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _filter = '');
-                            },
-                          )
-                        : null,
+                      Text(
+                        AppStrings.get(context, 'font_scanned_count', [systemFonts.length]),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                  onChanged: (val) => setState(() => _filter = val.trim().toLowerCase()),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final notifier = ref.read(themeStateProvider.notifier);
+                    notifier.setSystemFont(SystemFontScanner.idSystemDefault);
+                    notifier.setFontWeight(400);
+                  },
+                  child: Text(AppStrings.get(context, 'font_reset_default')),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            // Search Input
+            TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                hintText: AppStrings.get(context, 'font_search_hint'),
+                hintStyle: const TextStyle(fontSize: 13),
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: colorScheme.outline),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: colorScheme.primary, width: 2),
                 ),
               ),
-              // Font weight quick slider
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                child: Row(
-                  children: [
-                    Text(
-                      '${AppStrings.get(context, 'font_weight')}: ${themeState.fontWeight}',
-                      style: Theme.of(context).textTheme.labelMedium,
+            ),
+
+            const SizedBox(height: 12),
+
+            // Font List
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.only(bottom: 28),
+                itemCount: filteredFonts.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final entry = filteredFonts[index];
+                  final isSelected = entry.id == themeState.systemFontId ||
+                      (SystemFontScanner.isDefaultFontId(entry.id) &&
+                          SystemFontScanner.isDefaultFontId(themeState.systemFontId));
+
+                  return Material(
+                    color: isSelected
+                        ? colorScheme.primaryContainer.withValues(alpha: 0.75)
+                        : colorScheme.surfaceContainerHigh,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: isSelected
+                          ? BorderSide(color: colorScheme.primary, width: 1.5)
+                          : BorderSide.none,
                     ),
-                    Expanded(
-                      child: Slider(
-                        value: themeState.fontWeight.toDouble(),
-                        min: 100,
-                        max: 900,
-                        divisions: 8,
-                        label: '${themeState.fontWeight}',
-                        onChanged: (val) {
-                          ref.read(themeStateProvider.notifier).setFontWeight(val.toInt());
-                        },
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () {
+                        ref.read(themeStateProvider.notifier).setSystemFont(entry.id);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          entry.displayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontFamily: entry.fontFamily,
+                                            fontWeight: weight,
+                                            fontSize: 15,
+                                            color: colorScheme.onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                      if (entry.isBuiltInLogical) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: colorScheme.secondaryContainer,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            'OS',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: colorScheme.onSecondaryContainer,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    AppStrings.get(context, 'font_preview_sample'),
+                                    style: TextStyle(
+                                      fontFamily: entry.fontFamily,
+                                      fontWeight: weight,
+                                      fontSize: 13,
+                                      color: colorScheme.primary,
+                                    ),
+                                  ),
+                                  Text(
+                                    entry.subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isSelected)
+                              Icon(
+                                Icons.check_circle,
+                                color: colorScheme.primary,
+                                size: 22,
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
-              const Divider(height: 1),
-              // Font list
-              Expanded(
-                child: fontsAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (err, _) => Center(child: Text('Error: $err')),
-                  data: (fonts) {
-                    final filtered = fonts.where((f) {
-                      if (_filter.isEmpty) return true;
-                      return f.displayName.toLowerCase().contains(_filter) ||
-                          f.id.toLowerCase().contains(_filter);
-                    }).toList();
-
-                    return ListView.builder(
-                      controller: scrollController,
-                      itemCount: filtered.length,
-                      itemBuilder: (context, index) {
-                        final font = filtered[index];
-                        final isSelected = font.id == themeState.systemFontId;
-
-                        return Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? colorScheme.primaryContainer.withOpacity(0.5)
-                                : colorScheme.surfaceContainerLowest,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isSelected
-                                  ? colorScheme.primary
-                                  : Colors.transparent,
-                              width: 1.5,
-                            ),
-                          ),
-                          child: ListTile(
-                            title: Text(
-                              font.displayName,
-                              style: TextStyle(
-                                fontFamily: font.fontFamily,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                AppStrings.get(context, 'font_preview_sample'),
-                                style: TextStyle(
-                                  fontFamily: font.fontFamily,
-                                  fontSize: 13,
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            trailing: isSelected
-                                ? Icon(Icons.check_circle, color: colorScheme.primary)
-                                : null,
-                            onTap: () {
-                              ref.read(themeStateProvider.notifier).setSystemFont(font.id);
-                              Navigator.of(context).pop();
-                            },
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

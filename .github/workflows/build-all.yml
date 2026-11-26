@@ -14,29 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  wake-runner:
-    name: Wake InstaBox Runner
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wake runami machine via InstaBox API
-        continue-on-error: true
-        env:
-          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
-        run: |
-          if [ -n "$INSTABOX_API_KEY" ]; then
-            echo ">>> Sending wake request to InstaBox for runami (m_agqzg6p6up64vdycn4j2n4kpyu)..."
-            curl -s -X POST "https://api.instabox.sh/v1/machines/m_agqzg6p6up64vdycn4j2n4kpyu/wake" \
-              -H "Authorization: Bearer $INSTABOX_API_KEY" || true
-            echo ">>> Waiting 12s for runner daemon to connect..."
-            sleep 12
-          else
-            echo "INSTABOX_API_KEY is not set, skipping wake."
-          fi
-
   build-android:
     name: Build & Sign Android APK
-    needs: wake-runner
-    runs-on: [self-hosted, android-builder]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -433,37 +413,3 @@ jobs:
           if [ -n "${KEYCHAIN_PATH:-}" ]; then
             security delete-keychain "$KEYCHAIN_PATH" || true
           fi
-
-  cleanup-cache:
-    name: Clean up InstaBox build cache
-    needs: [build-android]
-    if: always()
-    runs-on: [self-hosted, android-builder]
-    steps:
-      - name: Clean build caches and temporary workspace outputs
-        continue-on-error: true
-        run: |
-          echo ">>> Disk usage before cleanup:"
-          df -h . "$HOME" || true
-          rm -rf \
-            "$GITHUB_WORKSPACE/build" \
-            "$GITHUB_WORKSPACE/.dart_tool" \
-            "$GITHUB_WORKSPACE/android/.gradle" \
-            "$GITHUB_WORKSPACE/android/build" \
-            "$GITHUB_WORKSPACE/android"/*/build \
-            "$GITHUB_WORKSPACE/build-outputs" \
-            "$GITHUB_WORKSPACE/keystore_backup" \
-            "$HOME/.gradle/caches/build-cache-"* \
-            "$HOME/.gradle/caches/transforms-"* \
-            "$HOME/.gradle/caches/journal-"* \
-            "$HOME/.gradle/caches/8."* \
-            "$HOME/.gradle/caches/9."* \
-            "$HOME/.gradle/daemon" \
-            "$HOME/.gradle/tmp" \
-            "$HOME/.android/build-cache" \
-            "${TMPDIR:-/tmp}"/gradle* \
-            "${TMPDIR:-/tmp}"/kotlin* \
-            "$RUNNER_TEMP/"* \
-            /tmp/gradle* /tmp/kotlin* /tmp/sdk.log 2>/dev/null || true
-          echo ">>> Disk usage after cleanup:"
-          df -h . "$HOME" || true

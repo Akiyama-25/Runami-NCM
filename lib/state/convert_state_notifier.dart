@@ -38,6 +38,18 @@ class ConvertQueueState {
   }
 }
 
+class AddFilesReport {
+  final int addedCount;
+  final int filteredOutCount;
+  final bool truncatedToMax;
+
+  const AddFilesReport({
+    required this.addedCount,
+    required this.filteredOutCount,
+    required this.truncatedToMax,
+  });
+}
+
 class ConvertQueueNotifier extends StateNotifier<ConvertQueueState> {
   static const int maxConcurrent = 2;
   int _nextId = 1;
@@ -50,13 +62,18 @@ class ConvertQueueNotifier extends StateNotifier<ConvertQueueState> {
 
   ConvertQueueNotifier() : super(const ConvertQueueState());
 
-  void addFiles(List<String> paths) {
-    final validPaths = paths.where((p) => p.toLowerCase().endsWith('.ncm')).toList();
+  AddFilesReport addFiles(List<String> paths) {
+    final validPaths = paths.where((path) => path.toLowerCase().endsWith('.ncm')).toList();
+    final filteredOutCount = paths.length - validPaths.length;
     if (validPaths.isEmpty) {
-      state = state.copyWith(bannerMessage: '未发现有效的 .ncm 文件');
-      return;
+      return AddFilesReport(
+        addedCount: 0,
+        filteredOutCount: filteredOutCount,
+        truncatedToMax: false,
+      );
     }
 
+    final truncated = validPaths.length > 50;
     final toAdd = validPaths.take(50).toList();
     final newItems = <FileItem>[];
 
@@ -76,6 +93,11 @@ class ConvertQueueNotifier extends StateNotifier<ConvertQueueState> {
     final updated = [...state.items, ...newItems];
     state = state.copyWith(items: updated, bannerMessage: null);
     AppLogger.i('ConvertQueue', 'Added ${newItems.length} files to queue');
+    return AddFilesReport(
+      addedCount: newItems.length,
+      filteredOutCount: filteredOutCount,
+      truncatedToMax: truncated,
+    );
   }
 
   void removeFile(int id) {
@@ -157,12 +179,14 @@ class ConvertQueueNotifier extends StateNotifier<ConvertQueueState> {
       );
 
       // Search and match lyrics
-      _updateItem(id, (it) => it.copyWith(state: DecryptState.SEARCHING_LYRIC));
       String? lyric;
-      try {
-        lyric = await _lyricMatcher.matchLyric(payload.metadata);
-      } catch (e) {
-        AppLogger.w('ConvertQueue', 'Lyric search failed: $e');
+      if (AppPrefs.enableLyric) {
+        _updateItem(id, (it) => it.copyWith(state: DecryptState.SEARCHING_LYRIC));
+        try {
+          lyric = await _lyricMatcher.matchLyric(payload.metadata);
+        } catch (e) {
+          AppLogger.w('ConvertQueue', 'Lyric search failed: $e');
+        }
       }
 
       // Cover Art
@@ -198,6 +222,7 @@ class ConvertQueueNotifier extends StateNotifier<ConvertQueueState> {
         mimeType: payload.format == 'flac' ? 'audio/flac' : 'audio/mpeg',
         extension: payload.format,
         lyric: lyric,
+        coverBytes: coverBytes,
       );
 
       String? outPath;
@@ -205,12 +230,15 @@ class ConvertQueueNotifier extends StateNotifier<ConvertQueueState> {
         outPath = await _saveAudioToFile(item.name, payload.format, taggedAudio);
       }
 
+      final hasLyric = lyric != null && lyric.isNotEmpty;
+      final finalState = (!AppPrefs.enableLyric || hasLyric)
+          ? DecryptState.COMPLETED
+          : DecryptState.COMPLETED_NO_LYRIC;
+
       _updateItem(
         id,
         (it) => it.copyWith(
-          state: (lyric != null && lyric.isNotEmpty)
-              ? DecryptState.COMPLETED
-              : DecryptState.COMPLETED_NO_LYRIC,
+          state: finalState,
           progress: 1.0,
           result: result,
           outputPath: outPath,

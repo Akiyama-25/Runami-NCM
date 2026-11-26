@@ -45,3 +45,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/app_instructions.txt
+    - assets/app_instructions_zh_sc.md
+    - assets/app_instructions_zh_tc.md
+    - assets/app_instructions_en.md
+    - assets/app_instructions_ja.md

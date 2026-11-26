@@ -1,272 +1,459 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/decrypt/models/decrypt_models.dart';
-import '../core/utils/file_utils.dart';
+import '../core/theme/app_colors.dart';
 import '../l10n/app_strings.dart';
-import '../state/providers.dart';
 
-class FileItemCard extends ConsumerWidget {
+/// File item card ported 1:1 from NCM-Converter-For-Android's FileItemView.kt.
+class FileItemCard extends StatelessWidget {
   final FileItem item;
+  final VoidCallback onDecrypt;
+  final VoidCallback onRemove;
+  final VoidCallback onSave;
+  final bool autoSave;
+  final bool enableCover;
 
-  const FileItemCard({super.key, required this.item});
+  const FileItemCard({
+    super.key,
+    required this.item,
+    required this.onDecrypt,
+    required this.onRemove,
+    required this.onSave,
+    required this.autoSave,
+    required this.enableCover,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final primaryColor = colorScheme.primary;
+    final onSurface = colorScheme.onSurface;
+    final onSurfaceVariant = colorScheme.onSurfaceVariant;
+
     final isDone = item.state == DecryptState.COMPLETED ||
         item.state == DecryptState.COMPLETED_NO_LYRIC;
     final isFailed = item.state == DecryptState.FAILED;
-    final isWorking = item.state == DecryptState.PARSING ||
-        item.state == DecryptState.DECRYPTING ||
-        item.state == DecryptState.SEARCHING_LYRIC ||
-        item.state == DecryptState.WRITING_META;
 
-    String stateLabel = AppStrings.get(context, 'file_wait');
-    Color stateColor = colorScheme.outline;
-
-    switch (item.state) {
-      case DecryptState.PARSING:
-        stateLabel = AppStrings.get(context, 'file_parsing');
-        stateColor = colorScheme.primary;
-        break;
-      case DecryptState.DECRYPTING:
-        final pct = (item.progress * 100).toInt();
-        stateLabel = '${AppStrings.get(context, 'file_decrypting')} $pct%';
-        stateColor = colorScheme.primary;
-        break;
-      case DecryptState.SEARCHING_LYRIC:
-        stateLabel = AppStrings.get(context, 'file_searching_lyric');
-        stateColor = colorScheme.secondary;
-        break;
-      case DecryptState.WRITING_META:
-        stateLabel = AppStrings.get(context, 'file_writing_meta');
-        stateColor = colorScheme.tertiary;
-        break;
-      case DecryptState.COMPLETED:
-        stateLabel = AppStrings.get(context, 'file_completed');
-        stateColor = Colors.green;
-        break;
-      case DecryptState.COMPLETED_NO_LYRIC:
-        stateLabel = '${AppStrings.get(context, 'file_completed')} (${AppStrings.get(context, 'file_no_lyric')})';
-        stateColor = Colors.teal;
-        break;
-      case DecryptState.FAILED:
-        stateLabel = AppStrings.get(context, 'file_failed');
-        stateColor = colorScheme.error;
-        break;
-      case DecryptState.IDLE:
-        stateLabel = AppStrings.get(context, 'file_wait');
-        stateColor = colorScheme.outline;
-        break;
-    }
-
-    final displayName = (item.result?.metadata.musicName.isNotEmpty ?? false) &&
-            item.result!.metadata.musicName != 'Unknown'
-        ? item.result!.metadata.musicName
-        : item.name;
-
-    final artists = item.result?.metadata.artists.join('/') ?? '';
-    final extBadge = item.result?.extension.toUpperCase();
+    final borderColor = isDone
+        ? kSuccessColor.withValues(alpha: 0.35)
+        : isFailed
+            ? kErrorColor.withValues(alpha: 0.4)
+            : colorScheme.outlineVariant.withValues(alpha: 0.45);
 
     return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       elevation: 0,
       color: colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: borderColor, width: 1),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Thumbnail container
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      isDone ? Icons.music_note : Icons.audiotrack,
-                      color: isDone ? colorScheme.primary : colorScheme.onSurfaceVariant,
-                      size: 28,
-                    ),
-                  ),
+                // Album Cover or M3E Expressive Tonal Icon Container (48x48, radius 14)
+                _buildLeadingArtwork(
+                  colorScheme: colorScheme,
+                  isDone: isDone,
+                  isFailed: isFailed,
                 ),
-                const SizedBox(width: 14),
-                // Song Title & Details
+                const SizedBox(width: 12),
+
+                // File Name & Metadata Badges
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: (textTheme.titleSmall ?? const TextStyle()).copyWith(
+                          fontSize: 14,
+                          color: onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
                         children: [
-                          Expanded(
+                          // File size pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
                             child: Text(
-                              displayName,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              _formatFileSize(item.size),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: onSurfaceVariant,
+                              ),
                             ),
                           ),
-                          if (extBadge != null) ...[
-                            const SizedBox(width: 8),
+
+                          // Extension badge (MP3 / FLAC)
+                          if (item.result?.extension.isNotEmpty ?? false)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: colorScheme.primaryContainer,
-                                borderRadius: BorderRadius.circular(8),
+                                color: primaryColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                extBadge,
+                                item.result!.extension.toUpperCase(),
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: colorScheme.onPrimaryContainer,
+                                  color: primaryColor,
                                 ),
                               ),
                             ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        artists.isNotEmpty
-                            ? '$artists · ${FileUtils.formatFileSize(item.size)}'
-                            : FileUtils.formatFileSize(item.size),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 6),
-                      // State badge
-                      Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: stateColor,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              stateLabel,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: stateColor,
-                                fontWeight: FontWeight.w600,
+
+                          // LRC badge
+                          if (item.result?.lyric != null && item.result!.lyric!.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: kSuccessColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.lyrics,
+                                    size: 12,
+                                    color: kSuccessColor,
+                                  ),
+                                  SizedBox(width: 3),
+                                  Text(
+                                    'LRC',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: kSuccessColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ],
                   ),
                 ),
+
+                const SizedBox(width: 4),
+
+                // M3E Inline Action Pill Buttons
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (item.state == DecryptState.IDLE || item.state == DecryptState.FAILED)
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: IconButton.filledTonal(
+                          onPressed: onDecrypt,
+                          padding: EdgeInsets.zero,
+                          tooltip: AppStrings.get(context, 'file_action_decrypt'),
+                          style: IconButton.styleFrom(
+                            backgroundColor: colorScheme.primaryContainer,
+                            foregroundColor: colorScheme.onPrimaryContainer,
+                          ),
+                          icon: const Icon(Icons.play_arrow, size: 20),
+                        ),
+                      )
+                    else if (isDone && !autoSave)
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: IconButton.filledTonal(
+                          onPressed: onSave,
+                          padding: EdgeInsets.zero,
+                          tooltip: AppStrings.get(context, 'file_action_save'),
+                          style: IconButton.styleFrom(
+                            backgroundColor: kSuccessColor.withValues(alpha: 0.18),
+                            foregroundColor: kSuccessColor,
+                          ),
+                          icon: const Icon(Icons.save_alt, size: 20),
+                        ),
+                      ),
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: IconButton(
+                        onPressed: onRemove,
+                        padding: EdgeInsets.zero,
+                        tooltip: AppStrings.get(context, 'file_action_remove'),
+                        icon: Icon(
+                          Icons.close,
+                          size: 18,
+                          color: onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
-            // Progress Bar if working
-            if (isWorking) ...[
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: item.progress > 0.0 ? item.progress : null,
-                  minHeight: 6,
-                  backgroundColor: colorScheme.surfaceContainerHighest,
-                  color: colorScheme.primary,
-                ),
+
+            const SizedBox(height: 10),
+
+            // Expressive Status Row & Progress Indicator
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.96, end: 1.0).animate(animation),
+                    alignment: Alignment.centerLeft,
+                    child: child,
+                  ),
+                );
+              },
+              child: Align(
+                key: ValueKey(item.state),
+                alignment: Alignment.centerLeft,
+                child: _buildStatusRow(context, colorScheme),
               ),
-            ],
-            // Action Buttons Footer
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (item.state == DecryptState.IDLE || isFailed) ...[
-                  FilledButton.tonalIcon(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      minimumSize: const Size(0, 36),
-                    ),
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                    label: Text(AppStrings.get(context, 'file_action_decrypt')),
-                    onPressed: () {
-                      ref.read(convertQueueProvider.notifier).convertSingle(item.id);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                if (isDone) ...[
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      minimumSize: const Size(0, 36),
-                    ),
-                    icon: Icon(
-                      item.outputPath != null ? Icons.check : Icons.save_alt,
-                      size: 18,
-                    ),
-                    label: Text(
-                      item.outputPath != null
-                          ? AppStrings.get(context, 'file_completed')
-                          : AppStrings.get(context, 'file_action_save'),
-                    ),
-                    onPressed: item.outputPath != null
-                        ? null
-                        : () async {
-                            try {
-                              final path = await ref
-                                  .read(convertQueueProvider.notifier)
-                                  .saveSingle(item.id);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      AppStrings.get(context, 'main_saved_to', [path]),
-                                    ),
-                                  ),
-                                );
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      AppStrings.get(context, 'main_save_failed_msg', [e.toString()]),
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  tooltip: AppStrings.get(context, 'file_action_remove'),
-                  onPressed: () {
-                    ref.read(convertQueueProvider.notifier).removeFile(item.id);
-                  },
-                ),
-              ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildLeadingArtwork({
+    required ColorScheme colorScheme,
+    required bool isDone,
+    required bool isFailed,
+  }) {
+    final coverBytes = item.result?.coverBytes;
+    final rawAlbumPic = item.result?.metadata.albumPic.trim() ?? '';
+    final albumPic = rawAlbumPic.replaceFirst(
+      RegExp(r'^http://', caseSensitive: false),
+      'https://',
+    );
+
+    Widget fallbackIcon() {
+      return Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: isDone
+              ? kSuccessColor.withValues(alpha: 0.14)
+              : isFailed
+                  ? kErrorColor.withValues(alpha: 0.14)
+                  : colorScheme.primaryContainer.withValues(alpha: 0.65),
+        ),
+        child: Center(
+          child: Icon(
+            Icons.audio_file,
+            size: 26,
+            color: isDone
+                ? kSuccessColor
+                : isFailed
+                    ? kErrorColor
+                    : colorScheme.primary,
+          ),
+        ),
+      );
+    }
+
+    if (enableCover && coverBytes != null && coverBytes.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.memory(
+          coverBytes,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallbackIcon(),
+        ),
+      );
+    }
+
+    if (enableCover && albumPic.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.network(
+          albumPic,
+          width: 48,
+          height: 48,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallbackIcon(),
+        ),
+      );
+    }
+
+    return fallbackIcon();
+  }
+
+  Widget _buildStatusRow(BuildContext context, ColorScheme colorScheme) {
+    final primaryColor = colorScheme.primary;
+    final onSurfaceVariant = colorScheme.onSurfaceVariant;
+    final extUpper = item.result?.extension.toUpperCase() ?? '';
+
+    switch (item.state) {
+      case DecryptState.IDLE:
+        return Row(
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              AppStrings.get(context, 'file_wait'),
+              style: TextStyle(fontSize: 12, color: onSurfaceVariant),
+            ),
+          ],
+        );
+
+      case DecryptState.PARSING:
+      case DecryptState.DECRYPTING:
+      case DecryptState.WRITING_META:
+        final label = switch (item.state) {
+          DecryptState.PARSING => AppStrings.get(context, 'file_parsing'),
+          DecryptState.DECRYPTING =>
+            AppStrings.get(context, 'file_decrypting', [(item.progress * 100).toInt()]),
+          DecryptState.WRITING_META => AppStrings.get(context, 'file_writing_meta'),
+          _ => '',
+        };
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: primaryColor,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: primaryColor),
+                ),
+              ],
+            ),
+            if (item.state == DecryptState.DECRYPTING) ...[
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(end: item.progress.clamp(0.0, 1.0)),
+                  duration: const Duration(milliseconds: 220),
+                  builder: (context, value, _) {
+                    return LinearProgressIndicator(
+                      value: value,
+                      minHeight: 5,
+                      color: primaryColor,
+                      backgroundColor: colorScheme.surfaceContainerHighest,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        );
+
+      case DecryptState.SEARCHING_LYRIC:
+        return Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: primaryColor,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              AppStrings.get(context, 'file_searching_lyric'),
+              style: TextStyle(fontSize: 12, color: primaryColor),
+            ),
+          ],
+        );
+
+      case DecryptState.COMPLETED:
+        return Row(
+          children: [
+            const Icon(Icons.check_circle, size: 16, color: kSuccessColor),
+            const SizedBox(width: 6),
+            Text(
+              AppStrings.get(context, 'file_completed', [extUpper]),
+              style: const TextStyle(fontSize: 12, color: kSuccessColor),
+            ),
+          ],
+        );
+
+      case DecryptState.COMPLETED_NO_LYRIC:
+        return Wrap(
+          spacing: 6,
+          runSpacing: 2,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle, size: 16, color: kSuccessColor),
+                const SizedBox(width: 6),
+                Text(
+                  AppStrings.get(context, 'file_completed', [extUpper]),
+                  style: const TextStyle(fontSize: 12, color: kSuccessColor),
+                ),
+              ],
+            ),
+            Text(
+              '· ${AppStrings.get(context, 'file_no_lyric')}',
+              style: TextStyle(fontSize: 11, color: onSurfaceVariant),
+            ),
+          ],
+        );
+
+      case DecryptState.FAILED:
+        return Row(
+          children: [
+            const Icon(Icons.error_outline, size: 16, color: kErrorColor),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                item.error ?? AppStrings.get(context, 'file_failed'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: kErrorColor),
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${bytes ~/ 1024} KB';
+    return '${(bytes / (1024.0 * 1024.0)).toStringAsFixed(1)} MB';
   }
 }

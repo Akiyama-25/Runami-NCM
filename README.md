@@ -1,97 +1,86 @@
+[English](https://github.com/Akiyama-25/Runami-NCM/blob/main/README_EN.md) | [繁體中文](https://github.com/Akiyama-25/Runami-NCM/blob/main/README_TC.md) | [日本語](https://github.com/Akiyama-25/Runami-NCM/blob/main/README_JA.md)
+
 # Runami-NCM
 
-一个跨平台（**Android / Windows / iOS**）网易云音乐本地加密下载文件（`.ncm`）转换还原工具。采用 **Flutter** 与纯 **Dart + Isolate** 高吞吐并发架构重构，全面引入参考 [FlClash](https://github.com/chen08209/FlClash) 的 **Material 3 Expressive (M3E)** 表现力设计语言。
+将网易云音乐加密的 `.ncm` 文件解密为标准 MP3 或 FLAC 格式的跨平台应用（支持 **Android / Windows / iOS**），基于 Flutter 与纯 Dart + Isolate 并发架构打造，完整移植原版 [NCM-Converter-For-Android](https://github.com/Akiyama-25/NCM-Converter-For-Android) 的 UI 与交互体验。
 
----
+## 功能
 
-## ✨ 核心亮点与技术特性
+- 批量转换，支持单次导入最多 50 个 `.ncm` 文件并自动过滤非 `.ncm` 文件
+- 纯 Dart + Isolate 并发解密流水线，零原生动态库依赖，转换过程不阻塞 UI
+- 自动写入元数据（标题、艺术家、专辑、封面）
+- 自动搜索并嵌入歌词，支持原文与翻译独立开关控制
+- 系统文件夹选择器设置导出目录，支持自动保存与手动逐条保存切换
+- 桌面端（Windows）支持直接拖拽 `.ncm` 文件到窗口导入；iOS 支持通过系统「文件 (Files)」App 与分享菜单导入
+- Material You 动态取色（Android 12+ 等支持动态取色的平台）
+- 自定义强调色与背景色（HSL 渐变滑条实时预览）
+- Material 3 Expressive (M3E) 风格卡片与响应式网格布局，适配手机、折叠屏、平板与桌面宽屏
+- 读取本机系统已安装字体（零内嵌字体包，支持 Android / Windows / iOS 系统字体扫描、搜索、实时预览切换与 100–900 九档字重自定义调节）
+- 预见性返回手势与跟手缩放预览过渡（设置页侧滑返回透出底层主页，支持动态圆角卡片与视差缩放）
+- 双击返回键退出（Android）
+- 内置运行日志查看与导出（支持日志级别与 `.log` / `.txt` / `.md` 格式切换）及 Markdown 使用说明
+- 多语言支持：简体中文、繁体中文、English、日本語
 
-### 1. 纯 Dart + Isolate 高性能解密流水线
-- **零原生动态库依赖**：摒弃 C++/Rust FFI 重度跨平台交叉编译链，全链路采用纯 Dart 实现 `AES-128-ECB` 密钥解包、`RC4` 音频载荷分块流式解密。
-- **Isolate 并发隔离**：解密计算与元数据封装运行在后台 `Isolate` 工作池中，单曲 30MB+ 无损 FLAC 转换耗时仅 ~100ms，UI 满帧响应零卡顿。
-- **智能格式识别**：通过解密后前 4 字节魔数（`fLaC`）自动识别输出为标准 FLAC 或 MP3 格式。
+## 系统要求
 
-### 2. 零内嵌字体与系统已安装字体扫描（FlClash 风格）
-- **安装包体积立减 85%+**：彻底剔除内嵌几十兆中文字体包。
-- **跨平台系统字体动态扫描**：
-  - **Windows**：扫描 `C:\Windows\Fonts` 及 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`，动态识别微软雅黑 UI、思源黑体、霞鹜文楷等已安装字体。
-  - **Android**：枚举系统已装字体族并动态注入。
-  - **iOS**：通过 MethodChannel 枚举系统 `UIFont.familyNames`（如苹方 PingFang SC、Hiragino Sans 等）。
-- **实时预览与 100–900 字重阶梯调节**：可视化字体选择面板，支持实时搜索过滤、样本字形渲染及 Thin (100) 到 Black (900) 的动态字重调节。
+- **Android**：Android 8.0（API 26）及以上（targetSdk 36）
+- **Windows**：Windows 10 / 11（x64）
+- **iOS**：iOS 13.0 及以上
 
-### 3. 内置网易云官方 EAPI 直连与歌词/封面匹配
-- **无需自建服务端**：客户端直接通过 NetEase 官方加密端点拉取高清专辑封面及双语逐行对齐歌词。
-- **标准标签落盘**：
-  - **MP3**：写入 `ID3v2.3`（`TIT2` 歌名、`TPE1` 歌手、`TALB` 专辑、`APIC` 封面、`USLT` 歌词）。
-  - **FLAC**：构建标准 `VORBIS_COMMENT`（`TITLE`, `ARTIST`, `ALBUM`, `LYRICS`）与 `PICTURE` 块。
+## 技术栈
 
-### 4. 三端原生专属交互体验
-- **Windows 桌面端**：
-  - 窗口任意区域文件/文件夹拖拽（Drag & Drop）导入 `.ncm`。
-  - 自适应侧边导航栏（NavigationRail）与响应式多列布局。
-  - 桌面窗口最小化与系统托盘管理。
-- **iOS 移动端**：
-  - 开启 `UIFileSharingEnabled` 与 `LSSupportsOpeningDocumentsInPlace`，支持系统「文件 (Files)」App 目录访问。
-  - 声明 `.ncm` 文件类型，支持从微信、网盘等第三方 App 通过「分享 / 用其他应用打开」直接导入。
-- **Android 移动端**：
-  - 保持 SAF（Storage Access Framework）持久化目录授权。
-  - 适配 Material 3 动态取色（Monet / Dynamic Color）。
+- Flutter + Dart（Isolate 并发解密）+ Material 3 (M3E)
+- Riverpod + `dynamic_color`
+- Dio + PointyCastle（纯 Dart `AES-128-ECB` / `RC4` 解密与网易云 EAPI 直连）
+- `file_picker` / `desktop_drop` / `window_manager` / `path_provider`
 
----
+## 构建
 
-## 📱 统一包名标识
+### 本地构建
 
-- **Android 命名空间 (namespace)**：`Akari.Runami.NCM`
-- **Android 应用 ID (applicationId)**：`Akari.Runami.NCM`
-- **iOS 束标识符 (Bundle Identifier)**：`Akari.Runami.NCM`
-- **配置持久化变量**：严格继承原项目 `AppPrefs` 的所有键名（`theme_mode`, `custom_path`, `auto_save`, `enable_lyric`, `enable_cover`, `use_monet_colors`, `system_font_id`, `font_weight` 等）。
+```bash
+git clone https://github.com/Akiyama-25/Runami-NCM.git
+cd Runami-NCM
+flutter pub get
 
----
+# Android APK
+flutter build apk --release
 
-## 🛠️ GitHub Actions 持续集成与三端持久签名
+# Windows x64
+flutter build windows --release
 
-本项目在 GitHub Actions 中配置了整合的自动化构建与签名流水线（`.github/workflows/build-all.yml`）：
-
-| 平台 | 构建环境 | 签名方案 | 持久化方式 |
-| :--- | :--- | :--- | :--- |
-| **Android** | `ubuntu-latest` | Action 自动生成并配置 PKCS12 密钥库，并使用 `zipalign` 与 `apksigner` 签名 | `actions/cache@v4` 持久化存储 keystore，并输出备份制品 |
-| **Windows** | `windows-latest` | Action 自动生成代码签名证书，并使用 `signtool.exe` 进行数字签名 | `actions/cache@v4` 持久化存储证书，并输出备份制品 |
-| **iOS** | `macos-latest` | Action 自动生成代码签名证书与密钥链，为 `.app` 执行 codesign 并打包为 `.ipa` | `actions/cache@v4` 持久化存储证书，并输出备份制品 |
-
-> **注意**：构建产物默认只保存在 GitHub Actions 的 Artifacts 中供下载，切勿自动发布到 GitHub Releases，除非用户明确要求发布 Release。
-
----
-
-## 📂 工程目录结构
-
-```
-Runami NCM/
-├── .github/workflows/          # GitHub Actions 统一构建与签名工作流
-│   ├── build-all.yml           # Android / Windows / iOS 三端统一构建与签名流水线
-│   └── codeql.yml              # 代码安全自动化扫描
-├── android/                    # Android 原生平台配置与 Gradle 脚本
-│   └── app/build.gradle.kts    # 包名: Akari.Runami.NCM
-├── ios/                        # iOS 原生工程与 Info.plist 文件关联配置
-├── windows/                    # Windows 桌面 Runner 与 C++ 宿主工程
-├── assets/                     # 仅包含说明文档，零内嵌字体包
-├── lib/
-│   ├── core/
-│   │   ├── api/                # 网易云 EAPI / WeAPI 加密及直连客户端
-│   │   ├── decrypt/            # 纯 Dart + Isolate NCM 解密核心与模型
-│   │   ├── lyric/              # LRC 歌词解析、逐行对齐与模糊相似度计算
-│   │   ├── metadata/           # MP3 ID3v2 & FLAC Vorbis/Picture 写入引擎
-│   │   ├── theme/              # 系统字体扫描器、M3E 主题引擎与 HSL 色彩
-│   │   └── utils/              # AppPrefs（键名不变）、AppLogger、FileUtils
-│   ├── l10n/                   # 多语言本地化支持（简中、繁中、英文、日文）
-│   ├── state/                  # Riverpod 状态流与并发解密队列调度器
-│   ├── ui/                     # 自适应导航架、M3E 仪表盘与设置面板
-│   └── main.dart               # 应用主入口
-├── pubspec.yaml                # Flutter 项目依赖定义
-└── README.md
+# iOS（未签名构建）
+flutter build ios --release --no-codesign
 ```
 
----
+### GitHub Actions 自动化构建
 
-## 📄 开源许可
+本项目采用纯 GitHub Actions 托管环境（`ubuntu-latest` / `windows-latest` / `macos-latest`）执行三端自动化构建与持久签名，构建产物自动上传至 Actions Artifacts：
 
-本项目遵循 [GNU General Public License v3.0](LICENSE) 许可协议。
+- **Android**（`ubuntu-latest`）：`flutter test` + 构建 Release APK + `zipalign` / `apksigner` 持久签名
+- **Windows**（`windows-latest`）：构建 Windows x64 Release + `signtool.exe` 代码签名并打包 ZIP
+- **iOS**（`macos-latest`）：构建 iOS Release + `codesign` 签名并打包 IPA
+
+## 歌词功能
+
+歌词自动嵌入功能已内置网易云官方接口直连，开箱即用，无需额外搭建外部云端服务。
+
+1. APP 默认使用内置官方直连 API，无需额外配置即可自动获取并嵌入歌词与封面。
+2. 歌词功能开启后，可独立控制是否嵌入「原文歌词」与「翻译歌词」（若同时开启将自动逐行对齐合并）。
+
+> 注：翻译歌词功能仅支持简体中文翻译结果。当 APP 语言不是简体中文时，翻译开关会显示相应提示。
+
+## 参考项目
+
+本项目开发过程中参考了以下项目：
+
+- [Akiyama-25/NCM-Converter-For-Android](https://github.com/Akiyama-25/NCM-Converter-For-Android) — 原版 Android 项目的 UI 设计、交互规范与核心逻辑来源
+- [chen08209/FlClash](https://github.com/chen08209/FlClash) — M3E 表现力设计语言与系统已安装字体选择器参考
+- [rinchao0721/Melodia](https://github.com/rinchao0721/Melodia) — 提供了客户端内置加密直连网易云官方 API 的架构思路与协议参考
+- [Ame-Player](https://github.com/Akiyama-25/Ame-Player) — 客户端内置 NetEase 官方加密直连与构建签名工作流参考
+- [NLyric](https://github.com/wwh1004/NLyric) — 歌词匹配策略参考
+- [openyyy.com](https://openyyy.com/) — NCM 格式解析参考
+
+## 许可证
+
+本项目基于 [GPL v3](https://github.com/Akiyama-25/Runami-NCM/blob/main/LICENSE) 许可证开源。
